@@ -1,0 +1,13 @@
+{
+  "name": "arogyatika-agent-requests",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/serve.js",
+    "lint": "node scripts/lint.js",
+    "type-check": "node scripts/lint.js",
+    "test": "node --test",
+    "build": "node scripts/build.js"
+  }
+}
