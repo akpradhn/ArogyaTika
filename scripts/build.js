@@ -5,8 +5,8 @@ const dist = "dist";
 const files = [
   "index.html",
   "src/app.js",
-  "src/agentRequests.js",
-  "src/seedData.js",
+  "src/vaccineDashboard.js",
+  "src/mockData.js",
   "src/styles.css"
 ];
 
@@ -19,7 +19,7 @@ for (const file of files) {
 }
 
 const count = countFiles(dist);
-console.log(`Built static admin app in ${dist}/ with ${count} files.`);
+console.log(`Built static parent vaccine dashboard in ${dist}/ with ${count} files.`);
 
 function countFiles(root) {
   return readdirSync(root).reduce((total, entry) => {

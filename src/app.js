@@ -1,50 +1,47 @@
 import {
-  AGENT_STATUSES,
-  PRIORITIES,
   STATUS_LABELS,
-  createAgentRequest,
-  filterAgentRequests,
-  updateAgentRequest,
-  validateAgentRequestInput
-} from "./agentRequests.js";
-import { createSeedRequests } from "./seedData.js";
+  addCompletedDose,
+  createDashboardSnapshot,
+  formatRelativeDueDate,
+  getCurrentAge,
+  groupRecordsByStage,
+  validateDoseInput
+} from "./vaccineDashboard.js";
+import { createMockChildren } from "./mockData.js";
 
-const STORAGE_KEY = "arogyatika.agentRequests.v1";
+const STORAGE_KEY = "arogyatika.parentVaccineDashboard.v1";
+const TODAY = new Date("2026-06-28T10:00:00.000Z");
 const app = document.querySelector("#app");
 
 const state = {
-  requests: [],
-  selectedId: "",
-  filters: {
-    status: "all",
-    from: "",
-    to: ""
-  },
+  children: [],
+  selectedChildId: "",
+  mode: "dashboard",
+  notice: "",
   formError: "",
-  detailError: "",
-  isLoading: true
+  isLoading: true,
+  loadError: ""
 };
 
 init();
 
 function init() {
   try {
-    state.requests = loadRequests();
-    state.selectedId = state.requests[0]?.id || "";
+    state.children = loadChildren();
+    state.selectedChildId = state.children[0]?.id || "";
   } catch (error) {
-    renderError(error);
-    return;
+    state.loadError = error.message || "Unable to load vaccination records.";
   }
 
   state.isLoading = false;
   render();
 }
 
-function loadRequests() {
+function loadChildren() {
   const stored = localStorage.getItem(STORAGE_KEY);
   if (!stored) {
-    const seeded = createSeedRequests();
-    saveRequests(seeded);
+    const seeded = createMockChildren();
+    saveChildren(seeded);
     return seeded;
   }
 
@@ -52,287 +49,393 @@ function loadRequests() {
   return Array.isArray(parsed) ? parsed : [];
 }
 
-function saveRequests(requests) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(requests));
+function saveChildren(children) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(children));
 }
 
 function render() {
-  const filtered = filterAgentRequests(state.requests, state.filters);
-  const selected =
-    state.requests.find((request) => request.id === state.selectedId) || filtered[0] || null;
-
-  if (selected && selected.id !== state.selectedId) {
-    state.selectedId = selected.id;
+  if (state.isLoading) {
+    app.innerHTML = renderLoading();
+    return;
   }
 
-  app.innerHTML = `
-    <header class="topbar">
-      <div>
-        <p class="eyebrow">Internal admin</p>
-        <h1>Agent Requests</h1>
-      </div>
-      <div class="privacy-strip" aria-label="Privacy and control summary">
-        <span>No patient data</span>
-        <span>Manual issue / PR fields</span>
-        <span>Manual merge and deploy</span>
-      </div>
-    </header>
+  if (state.loadError) {
+    app.innerHTML = renderError(state.loadError);
+    bindEvents();
+    return;
+  }
 
-    <main class="workspace">
-      <section class="left-pane" aria-label="Request list">
-        ${renderNewRequestForm()}
-        ${renderFilters()}
-        ${renderRequestList(filtered)}
-      </section>
-      <section class="detail-pane" aria-label="Request detail">
-        ${selected ? renderDetail(selected) : renderEmptyDetail()}
-      </section>
+  if (state.children.length === 0) {
+    app.innerHTML = renderNoChild();
+    bindEvents();
+    return;
+  }
+
+  const child = getSelectedChild();
+  const snapshot = createDashboardSnapshot(child, TODAY);
+
+  app.innerHTML = `
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">Family vaccine tracker</p>
+        <h1>Vaccination Dashboard</h1>
+      </div>
+      ${renderChildSwitcher()}
+    </header>
+    <main class="dashboard">
+      ${state.notice ? `<p class="notice" role="status">${escapeHtml(state.notice)}</p>` : ""}
+      ${renderChildHeader(snapshot)}
+      ${renderStatusCards(snapshot)}
+      <div class="content-grid">
+        <section class="timeline-panel">
+          <div class="section-heading">
+            <h2>Vaccine Timeline</h2>
+            <span>Schedule guidance should be verified with a healthcare professional.</span>
+          </div>
+          ${renderTimeline(snapshot.child.records)}
+        </section>
+        <aside class="side-panel">
+          ${renderReminder(snapshot)}
+          ${renderActions(snapshot)}
+          ${state.mode === "record-form" ? renderRecordForm(snapshot.child) : ""}
+          ${renderHistory(snapshot.child)}
+        </aside>
+      </div>
     </main>
   `;
 
   bindEvents();
 }
 
-function renderNewRequestForm() {
+function renderChildSwitcher() {
   return `
-    <form class="new-request" data-action="create-request">
-      <div class="section-heading">
-        <h2>New Request</h2>
-        <span class="compact-note">Local draft only</span>
-      </div>
-      ${state.formError ? `<p class="error-text">${escapeHtml(state.formError)}</p>` : ""}
-      <div class="form-grid">
-        <label>
-          <span>Title</span>
-          <input name="title" placeholder="Optional short title">
-        </label>
-        <label>
-          <span>Module</span>
-          <input name="module" placeholder="Patient workspace">
-        </label>
-        <label>
-          <span>Priority</span>
-          <select name="priority">
-            ${PRIORITIES.map((priority) => `<option value="${priority}">${titleCase(priority)}</option>`).join("")}
-          </select>
-        </label>
-        <label class="file-field">
-          <span>Screenshot</span>
-          <input name="screenshot" type="file" accept="image/png,image/jpeg,image/webp">
-        </label>
-      </div>
-      <label>
-        <span>Rough Request</span>
-        <textarea name="original_request" required rows="4" placeholder="Describe the product request without patient identifiers."></textarea>
-      </label>
-      <div class="form-actions">
-        <button type="submit">Create Request</button>
-      </div>
-    </form>
+    <div class="child-switcher">
+      <label for="child-select">Child profile</label>
+      <select id="child-select" data-action="select-child">
+        ${state.children
+          .map(
+            (child) =>
+              `<option value="${child.id}"${child.id === state.selectedChildId ? " selected" : ""}>${escapeHtml(child.displayName)}</option>`
+          )
+          .join("")}
+      </select>
+      <button type="button" class="ghost-button" data-action="add-child">Add Child</button>
+    </div>
   `;
 }
 
-function renderFilters() {
+function renderChildHeader(snapshot) {
+  const child = snapshot.child;
+  const nextDue = snapshot.nextDue;
+
   return `
-    <form class="filters" data-action="filter">
-      <label>
-        <span>Status</span>
-        <select name="status">
-          <option value="all"${state.filters.status === "all" ? " selected" : ""}>All</option>
-          ${AGENT_STATUSES.map(
-            (status) =>
-              `<option value="${status}"${state.filters.status === status ? " selected" : ""}>${STATUS_LABELS[status]}</option>`
-          ).join("")}
-        </select>
-      </label>
-      <label>
-        <span>From</span>
-        <input name="from" type="date" value="${state.filters.from}">
-      </label>
-      <label>
-        <span>To</span>
-        <input name="to" type="date" value="${state.filters.to}">
-      </label>
-    </form>
+    <section class="hero">
+      <div class="profile-block">
+        <div class="avatar ${child.avatarTone}" aria-hidden="true">${escapeHtml(child.displayName.charAt(0))}</div>
+        <div>
+          <p class="eyebrow">Selected child</p>
+          <h2>${escapeHtml(child.displayName)}</h2>
+          <p class="soft-text profile-meta">
+            <span>Date of birth: ${formatDate(child.dateOfBirth)}</span>
+            <span>Current age: ${getCurrentAge(child.dateOfBirth, TODAY)}</span>
+          </p>
+        </div>
+      </div>
+      <div class="progress-block" aria-label="Vaccination progress">
+        <div class="progress-ring" style="--progress:${snapshot.progress}">
+          <strong>${snapshot.progress}%</strong>
+          <span>complete</span>
+        </div>
+        <p>${snapshot.completedCount} of ${snapshot.totalCount} vaccines completed or recorded.</p>
+      </div>
+      <div class="next-action">
+        <span>Next vaccine due</span>
+        <strong>${nextDue ? escapeHtml(nextDue.vaccineName) : "No upcoming dose"}</strong>
+        <p>${nextDue ? formatRelativeDueDate(nextDue.recommendedDate, TODAY) : "Keep future boosters in mind."}</p>
+        <button type="button" data-action="view-record">View Full Vaccine Record</button>
+      </div>
+    </section>
   `;
 }
 
-function renderRequestList(requests) {
-  if (state.isLoading) {
-    return `<div class="empty-state">Loading requests...</div>`;
-  }
+function renderStatusCards(snapshot) {
+  const next = snapshot.nextDue;
+  const dueThisWeek = snapshot.dueThisWeek.length;
+  const overdue = snapshot.overdue.length;
+  const reminder = snapshot.upcomingReminder;
 
-  if (requests.length === 0) {
+  return `
+    <section class="status-grid" aria-label="Vaccination status summary">
+      ${statusCard("Next Vaccine Due", next?.vaccineName || "None right now", next ? formatRelativeDueDate(next.recommendedDate, TODAY) : "No action today", "calm")}
+      ${statusCard("Due This Week", String(dueThisWeek), dueThisWeek ? "Plan a clinic visit when convenient" : "Nothing due this week", "week")}
+      ${statusCard("Overdue", String(overdue), overdue ? `${overdue} item${overdue === 1 ? "" : "s"} to review with your clinic` : "No overdue vaccines", overdue ? "overdue" : "calm")}
+      ${statusCard("Completed Vaccines", String(snapshot.completedCount), "Recorded in this profile", "done")}
+      ${statusCard("Upcoming Reminder", reminder?.vaccineName || "No reminder", reminder ? `${formatDate(reminder.date)} - ${reminder.status}` : "Add a reminder any time", "reminder")}
+    </section>
+    <section class="recommendation">
+      <strong>Recommended action</strong>
+      <p>${escapeHtml(snapshot.recommendedAction)} This dashboard does not provide medical diagnosis or medical advice.</p>
+    </section>
+  `;
+}
+
+function statusCard(title, value, detail, tone) {
+  return `
+    <article class="status-card ${tone}">
+      <span>${title}</span>
+      <strong>${escapeHtml(value)}</strong>
+      <p>${escapeHtml(detail)}</p>
+    </article>
+  `;
+}
+
+function renderTimeline(records) {
+  if (records.length === 0) {
     return `
       <div class="empty-state">
-        <strong>No matching requests</strong>
-        <span>Adjust filters or create a new anonymized request.</span>
+        <strong>No vaccination records yet</strong>
+        <p>Add a completed dose from a vaccination card or ask your clinic for help.</p>
       </div>
     `;
   }
 
   return `
-    <div class="request-list" role="list">
-      ${requests
+    <ol class="timeline">
+      ${groupRecordsByStage(records)
         .map(
-          (request) => `
-            <button class="request-row${request.id === state.selectedId ? " active" : ""}" data-select-id="${request.id}" role="listitem">
-              <span class="row-main">
-                <strong>${escapeHtml(request.title)}</strong>
-                <small>${escapeHtml(request.module || "Unassigned module")} - ${formatDate(request.updated_at)}</small>
-              </span>
-              <span class="status-pill ${request.status}">${STATUS_LABELS[request.status]}</span>
-            </button>
+          (group) => `
+            <li class="stage">
+              <h3>${group.stage}</h3>
+              <div class="dose-list">
+                ${group.records.map(renderDose).join("")}
+              </div>
+            </li>
           `
         )
         .join("")}
-    </div>
-  `;
-}
-
-function renderDetail(request) {
-  return `
-    <div class="detail-header">
-      <div>
-        <p class="eyebrow">${escapeHtml(request.module || "Unassigned module")}</p>
-        <h2>${escapeHtml(request.title)}</h2>
-      </div>
-      <span class="status-pill ${request.status}">${STATUS_LABELS[request.status]}</span>
-    </div>
-
-    ${renderTimeline(request.status)}
-
-    <div class="detail-grid">
-      <section class="summary-panel">
-        <h3>Request</h3>
-        <p>${escapeHtml(request.original_request)}</p>
-        <dl class="meta-grid">
-          <div><dt>Priority</dt><dd>${titleCase(request.priority)}</dd></div>
-          <div><dt>Created</dt><dd>${formatDateTime(request.created_at)}</dd></div>
-          <div><dt>Updated</dt><dd>${formatDateTime(request.updated_at)}</dd></div>
-          <div><dt>Created by</dt><dd>${escapeHtml(request.created_by)}</dd></div>
-        </dl>
-        ${
-          request.screenshot
-            ? `<figure class="screenshot-preview"><img src="${request.screenshot.dataUrl}" alt="Attached request screenshot"><figcaption>${escapeHtml(request.screenshot.name)}</figcaption></figure>`
-            : `<div class="empty-inline">No screenshot attached.</div>`
-        }
-      </section>
-
-      <form class="manual-fields" data-action="update-request" data-request-id="${request.id}">
-        <div class="section-heading">
-          <h3>Manual Tracking</h3>
-          <span class="compact-note">Automation-ready placeholders</span>
-        </div>
-        ${state.detailError ? `<p class="error-text">${escapeHtml(state.detailError)}</p>` : ""}
-        <label for="tracking-status-${request.id}">
-          <span>Status</span>
-          <select id="tracking-status-${request.id}" name="status">
-            ${AGENT_STATUSES.map(
-              (status) =>
-                `<option value="${status}"${request.status === status ? " selected" : ""}>${STATUS_LABELS[status]}</option>`
-            ).join("")}
-          </select>
-        </label>
-        <div class="form-grid">
-          ${manualInput("github_issue_url", "GitHub Issue URL", request.github_issue_url)}
-          ${manualInput("github_issue_number", "Issue Number", request.github_issue_number)}
-          ${manualInput("branch_name", "Branch Name", request.branch_name)}
-          ${manualInput("pr_url", "PR URL", request.pr_url)}
-        </div>
-        <label>
-          <span>Agent Summary</span>
-          <textarea name="agent_summary" rows="4">${escapeHtml(request.agent_summary)}</textarea>
-        </label>
-        <label>
-          <span>Test / Build Result</span>
-          <textarea name="test_result" rows="3">${escapeHtml(request.test_result)}</textarea>
-        </label>
-        <label>
-          <span>Failure Reason</span>
-          <textarea name="failure_reason" rows="3">${escapeHtml(request.failure_reason)}</textarea>
-        </label>
-        <div class="form-actions">
-          <button type="submit">Save Tracking</button>
-        </div>
-      </form>
-    </div>
-
-    <section class="audit-panel">
-      <h3>Audit Trail</h3>
-      <ol>
-        ${(request.audit_events || [])
-          .slice()
-          .reverse()
-          .map(
-            (event) =>
-              `<li><span>${formatDateTime(event.at)}</span><strong>${escapeHtml(event.action)}</strong><em>${escapeHtml(event.actor)}</em></li>`
-          )
-          .join("")}
-      </ol>
-    </section>
-  `;
-}
-
-function renderTimeline(currentStatus) {
-  const activeIndex = AGENT_STATUSES.indexOf(currentStatus);
-  return `
-    <ol class="timeline" aria-label="Request status timeline">
-      ${AGENT_STATUSES.map((status, index) => {
-        const stateClass =
-          currentStatus === "failed" && status === "failed"
-            ? "failed active"
-            : index < activeIndex
-              ? "complete"
-              : index === activeIndex
-                ? "active"
-                : "";
-        return `<li class="${stateClass}"><span></span>${STATUS_LABELS[status]}</li>`;
-      }).join("")}
     </ol>
   `;
 }
 
-function renderEmptyDetail() {
+function renderDose(record) {
+  const completed = record.status === "completed";
+  const selfReported = record.source === "self_reported";
+
   return `
-    <div class="empty-state detail-empty">
-      <strong>No request selected</strong>
-      <span>Create a request to begin manual product-to-PR tracking.</span>
-    </div>
+    <article class="dose ${record.status}">
+      <div>
+        <div class="dose-title">
+          <strong>${escapeHtml(record.vaccineName)}</strong>
+          <span>Dose ${escapeHtml(record.doseNumber)}</span>
+        </div>
+        <p>${escapeHtml(record.explanation)}</p>
+        ${selfReported ? `<em class="self-reported">Self-reported by parent or guardian</em>` : ""}
+      </div>
+      <div class="dose-meta">
+        <span class="status-pill ${record.status}">${STATUS_LABELS[record.status]}</span>
+        <small>Recommended: ${formatDate(record.recommendedDate)}</small>
+        <small>${completed ? `Completed on ${formatDate(record.actualDate)}` : formatRelativeDueDate(record.recommendedDate, TODAY)}</small>
+        ${
+          completed
+            ? `<button type="button" class="text-button" data-action="add-note" data-vaccine="${escapeAttribute(record.vaccineName)}" data-dose="${escapeAttribute(record.doseNumber)}">Add Note</button>`
+            : `<button type="button" data-action="complete-dose" data-vaccine="${escapeAttribute(record.vaccineName)}" data-dose="${escapeAttribute(record.doseNumber)}">Mark Completed</button>`
+        }
+      </div>
+    </article>
   `;
 }
 
-function manualInput(name, label, value) {
-  const type = name.includes("url") ? "url" : "text";
+function renderReminder(snapshot) {
+  const reminder = snapshot.upcomingReminder;
+
   return `
-    <label>
-      <span>${label}</span>
-      <input name="${name}" type="${type}" value="${escapeAttribute(value)}">
-    </label>
+    <section class="panel reminder-panel">
+      <div class="section-heading">
+        <h2>Reminder</h2>
+        <button type="button" class="text-button" data-action="edit-reminder">Edit</button>
+      </div>
+      ${
+        reminder
+          ? `<strong>${escapeHtml(reminder.vaccineName)}</strong><p>${formatDate(reminder.date)} - ${escapeHtml(reminder.channel)} - ${escapeHtml(reminder.status)}</p>`
+          : `<p>No reminder is set. You can add one for the next vaccine.</p>`
+      }
+      <button type="button" data-action="edit-reminder">Enable Reminder Preferences</button>
+    </section>
+  `;
+}
+
+function renderActions(snapshot) {
+  return `
+    <section class="panel action-panel">
+      <h2>Parent Actions</h2>
+      <div class="action-grid">
+        <button type="button" data-action="open-record-form">Add / Update Record</button>
+        <button type="button" data-action="upload-card">Upload Card Photo</button>
+        <button type="button" data-action="edit-reminder">Add Reminder</button>
+        <button type="button" data-action="download-summary">Share / Download Summary</button>
+        <button type="button" data-action="ask-clinic">Ask Clinic for Help</button>
+      </div>
+      <p class="helper-text">Parent-entered updates are marked as self-reported until a clinic verifies them.</p>
+    </section>
+  `;
+}
+
+function renderRecordForm(child) {
+  const openRecord = child.records.find((record) => record.status !== "completed") || child.records[0];
+
+  return `
+    <form class="panel record-form" data-action="save-record">
+      <div class="section-heading">
+        <h2>Add Completed Dose</h2>
+        <button type="button" class="text-button" data-action="close-form">Close</button>
+      </div>
+      ${state.formError ? `<p class="error-text">${escapeHtml(state.formError)}</p>` : ""}
+      <label>
+        <span>Vaccine name</span>
+        <input name="vaccineName" value="${escapeAttribute(openRecord?.vaccineName || "")}" required>
+      </label>
+      <label>
+        <span>Dose number</span>
+        <input name="doseNumber" value="${escapeAttribute(openRecord?.doseNumber || "")}" required>
+      </label>
+      <label>
+        <span>Date given</span>
+        <input name="dateGiven" type="date" required>
+      </label>
+      <label>
+        <span>Clinic or hospital (optional)</span>
+        <input name="clinic" placeholder="Clinic name">
+      </label>
+      <label>
+        <span>Vaccination card upload (optional)</span>
+        <input name="cardUpload" type="file" accept="image/png,image/jpeg,image/webp,application/pdf">
+      </label>
+      <label>
+        <span>Notes (optional)</span>
+        <textarea name="notes" rows="3" placeholder="Add anything helpful for your family or clinic."></textarea>
+      </label>
+      <button type="submit">Save Self-Reported Record</button>
+    </form>
+  `;
+}
+
+function renderHistory(child) {
+  const events = child.recordUpdateEvents || [];
+
+  return `
+    <section class="panel history-panel">
+      <h2>Recent Updates</h2>
+      ${
+        events.length === 0
+          ? `<p>No parent-entered updates yet.</p>`
+          : `<ol>${events
+              .slice()
+              .reverse()
+              .map(
+                (event) =>
+                  `<li><strong>${escapeHtml(event.vaccineName)} dose ${escapeHtml(event.doseNumber)}</strong><span>${formatDate(event.dateGiven)} - Self-reported</span></li>`
+              )
+              .join("")}</ol>`
+      }
+    </section>
+  `;
+}
+
+function renderLoading() {
+  return `
+    <main class="center-state">
+      <strong>Loading vaccination dashboard...</strong>
+      <p>Preparing a private family view.</p>
+    </main>
+  `;
+}
+
+function renderError(message) {
+  return `
+    <main class="center-state">
+      <strong>We could not load records</strong>
+      <p>${escapeHtml(message)}</p>
+      <button type="button" data-action="reset-demo">Reset Demo Data</button>
+    </main>
+  `;
+}
+
+function renderNoChild() {
+  return `
+    <main class="center-state">
+      <strong>No child profile yet</strong>
+      <p>Add a child profile to start tracking vaccines. Use only your own family records.</p>
+      <button type="button" data-action="add-child">Add Child</button>
+    </main>
   `;
 }
 
 function bindEvents() {
-  app.querySelector("[data-action='create-request']")?.addEventListener("submit", handleCreate);
-  app.querySelector("[data-action='filter']")?.addEventListener("input", handleFilter);
-  app.querySelector("[data-action='update-request']")?.addEventListener("submit", handleUpdate);
+  app.querySelector("[data-action='select-child']")?.addEventListener("change", (event) => {
+    state.selectedChildId = event.target.value;
+    state.mode = "dashboard";
+    state.notice = "";
+    render();
+  });
 
-  app.querySelectorAll("[data-select-id]").forEach((button) => {
+  app.querySelectorAll("[data-action='add-child']").forEach((button) => {
+    button.addEventListener("click", addMockChild);
+  });
+
+  app.querySelectorAll("[data-action='open-record-form'], [data-action='upload-card']").forEach((button) => {
     button.addEventListener("click", () => {
-      state.selectedId = button.dataset.selectId;
-      state.detailError = "";
+      state.mode = "record-form";
+      state.formError = "";
+      state.notice = "";
       render();
     });
   });
+
+  app.querySelectorAll("[data-action='complete-dose'], [data-action='add-note']").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.mode = "record-form";
+      state.formError = "";
+      state.notice = `Preparing a self-reported update for ${button.dataset.vaccine} dose ${button.dataset.dose}.`;
+      render();
+    });
+  });
+
+  app.querySelector("[data-action='save-record']")?.addEventListener("submit", handleSaveRecord);
+  app.querySelector("[data-action='close-form']")?.addEventListener("click", () => {
+    state.mode = "dashboard";
+    state.formError = "";
+    render();
+  });
+
+  app.querySelectorAll("[data-action='edit-reminder']").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.notice = "Reminder preferences are a placeholder in this prototype. No message was sent.";
+      render();
+    });
+  });
+
+  app.querySelector("[data-action='download-summary']")?.addEventListener("click", downloadSummary);
+  app.querySelector("[data-action='ask-clinic']")?.addEventListener("click", () => {
+    state.notice = "Clinic help is a placeholder. Please contact your healthcare professional directly for medical questions.";
+    render();
+  });
+  app.querySelector("[data-action='view-record']")?.addEventListener("click", () => {
+    document.querySelector(".timeline-panel")?.scrollIntoView({ behavior: "smooth" });
+  });
+  app.querySelector("[data-action='reset-demo']")?.addEventListener("click", () => {
+    localStorage.removeItem(STORAGE_KEY);
+    state.loadError = "";
+    init();
+  });
 }
 
-async function handleCreate(event) {
+function handleSaveRecord(event) {
   event.preventDefault();
   const form = event.currentTarget;
   const data = Object.fromEntries(new FormData(form).entries());
-  const file = form.elements.screenshot.files[0];
+  data.cardUploadName = form.elements.cardUpload.files[0]?.name || "";
 
-  const errors = validateAgentRequestInput(data);
+  const errors = validateDoseInput(data);
   if (errors.length > 0) {
     state.formError = errors[0];
     render();
@@ -340,91 +443,70 @@ async function handleCreate(event) {
   }
 
   try {
-    const screenshot = file ? await readScreenshot(file) : null;
-    const request = createAgentRequest({ ...data, screenshot }, new Date(), "admin@arogyatika.internal");
-    state.requests = [request, ...state.requests];
-    state.selectedId = request.id;
+    const child = getSelectedChild();
+    const updated = addCompletedDose(child, data, new Date());
+    state.children = state.children.map((item) => (item.id === child.id ? updated : item));
+    state.notice = updated.lastNotice;
+    state.mode = "dashboard";
     state.formError = "";
-    saveRequests(state.requests);
+    saveChildren(state.children);
     render();
   } catch (error) {
-    state.formError = error.details?.[0] || error.message || "Unable to create request.";
+    state.formError = error.details?.[0] || error.message || "Could not save record.";
     render();
   }
 }
 
-function handleFilter(event) {
-  const form = event.currentTarget;
-  state.filters = Object.fromEntries(new FormData(form).entries());
-  state.detailError = "";
+function addMockChild() {
+  const nextNumber = state.children.length + 1;
+  const child = {
+    id: `child-demo-${Date.now()}`,
+    displayName: `Demo Child ${nextNumber}`,
+    dateOfBirth: "2026-01-10",
+    avatarTone: "gold",
+    updatedAt: new Date().toISOString(),
+    records: [],
+    reminders: [],
+    recordUpdateEvents: []
+  };
+
+  state.children = [...state.children, child];
+  state.selectedChildId = child.id;
+  state.notice = "New empty child profile added with no records.";
+  saveChildren(state.children);
   render();
 }
 
-function handleUpdate(event) {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const id = form.dataset.requestId;
-  const existing = state.requests.find((request) => request.id === id);
-  if (!existing) return;
-
-  try {
-    const updates = Object.fromEntries(new FormData(form).entries());
-    const updated = updateAgentRequest(existing, updates, new Date(), "admin@arogyatika.internal");
-    state.requests = state.requests.map((request) => (request.id === id ? updated : request));
-    state.detailError = "";
-    saveRequests(state.requests);
-    render();
-  } catch (error) {
-    state.detailError = error.details?.[0] || error.message || "Unable to update request.";
-    render();
-  }
+function downloadSummary() {
+  const snapshot = createDashboardSnapshot(getSelectedChild(), TODAY);
+  const lines = [
+    `Vaccination summary for ${snapshot.child.displayName}`,
+    `Progress: ${snapshot.progress}%`,
+    `Recommended action: ${snapshot.recommendedAction}`,
+    "This summary uses mock/local records and should be verified with a healthcare professional."
+  ];
+  const blob = new Blob([lines.join("\n")], { type: "text/plain" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${snapshot.child.displayName.toLowerCase()}-vaccine-summary.txt`;
+  link.click();
+  URL.revokeObjectURL(url);
+  state.notice = "Summary downloaded locally. No data was sent anywhere.";
+  render();
 }
 
-function readScreenshot(file) {
-  const maxBytes = 1024 * 1024;
-  if (file.size > maxBytes) {
-    throw new Error("Screenshot must be smaller than 1 MB for local-only storage.");
-  }
-
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.addEventListener("load", () => {
-      resolve({
-        name: file.name,
-        type: file.type,
-        size: file.size,
-        dataUrl: reader.result
-      });
-    });
-    reader.addEventListener("error", () => reject(new Error("Unable to read screenshot.")));
-    reader.readAsDataURL(file);
-  });
-}
-
-function renderError(error) {
-  app.innerHTML = `
-    <main class="fatal-error">
-      <h1>Agent Requests could not load</h1>
-      <p>${escapeHtml(error.message || "Unknown local storage error.")}</p>
-    </main>
-  `;
-}
-
-function titleCase(value) {
-  return (value || "").replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+function getSelectedChild() {
+  return state.children.find((child) => child.id === state.selectedChildId) || state.children[0];
 }
 
 function formatDate(value) {
-  return new Intl.DateTimeFormat("en-IN", { month: "short", day: "numeric" }).format(new Date(value));
-}
-
-function formatDateTime(value) {
+  if (!value) return "Not recorded";
   return new Intl.DateTimeFormat("en-IN", {
-    month: "short",
     day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit"
-  }).format(new Date(value));
+    month: "long",
+    year: "numeric"
+  }).format(new Date(`${value}T00:00:00`));
 }
 
 function escapeHtml(value = "") {

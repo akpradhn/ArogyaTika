@@ -1,9 +1,8 @@
 # ArogyaTika
 
-Lightweight internal admin prototype for tracking product requests from rough idea
-to manual GitHub issue, branch, and PR handoff.
+Lightweight parent-facing vaccine tracking dashboard prototype.
 
-## Agent Requests
+## Parent Vaccine Dashboard
 
 Run locally:
 
@@ -22,7 +21,11 @@ npm test
 npm run build
 ```
 
-This implementation is intentionally local-only. It does not call paid AI APIs,
-GitHub APIs, webhooks, GitHub Actions, deployment systems, or any external
-service. Demo content is anonymized and must not be replaced with real patient
-data.
+This implementation is intentionally local-only. It does not modify secrets,
+workflows, deployment settings, or production data. Demo child records are
+fictional and must not be replaced with real child or patient data in tests,
+screenshots, logs, or seed data.
+
+Parent-entered updates are labeled self-reported. Schedule guidance in the UI is
+plain-language support only and should be verified with a healthcare
+professional.
