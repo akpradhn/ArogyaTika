@@ -28,6 +28,7 @@ const state = {
   authMode: "sign-in",
   authError: "",
   mode: "dashboard",
+  recordDraft: null,
   notice: "",
   formError: "",
   isLoading: true,
@@ -93,37 +94,73 @@ function render() {
   const snapshot = createDashboardSnapshot(child, TODAY);
 
   app.innerHTML = `
-    <header class="app-header">
-      <div>
-        <p class="eyebrow">Family vaccine tracker</p>
-        <h1>Vaccination Dashboard</h1>
-      </div>
-      ${renderAccountSummary()}
-      ${renderChildSwitcher()}
-    </header>
-    <main class="dashboard">
-      ${state.notice ? `<p class="notice" role="status">${escapeHtml(state.notice)}</p>` : ""}
-      ${renderChildHeader(snapshot)}
-      ${renderStatusCards(snapshot)}
-      <div class="content-grid">
-        <section class="timeline-panel">
-          <div class="section-heading">
-            <h2>Vaccine Timeline</h2>
-            <span>Schedule guidance should be verified with a healthcare professional.</span>
+    <div class="signed-in-shell">
+      ${renderSidebar()}
+      <section class="content-page">
+        <header class="overview-header">
+          <div>
+            <p class="eyebrow">Family vaccine tracker</p>
+            <h1>Overview</h1>
           </div>
-          ${renderTimeline(snapshot.child.records)}
-        </section>
-        <aside class="side-panel">
-          ${renderReminder(snapshot)}
-          ${renderActions(snapshot)}
-          ${state.mode === "record-form" ? renderRecordForm(snapshot.child) : ""}
-          ${renderHistory(snapshot.child)}
-        </aside>
-      </div>
-    </main>
+          <div class="overview-controls">
+            ${renderChildSwitcher()}
+            ${renderAccountSummary()}
+          </div>
+        </header>
+        <main class="overview-workspace">
+          <section class="overview-main">
+            ${state.notice ? `<p class="notice" role="status">${escapeHtml(state.notice)}</p>` : ""}
+            ${renderChildHeader(snapshot)}
+            ${renderStatusCards(snapshot)}
+            <section class="timeline-panel">
+              <div class="section-heading">
+                <h2>Vaccination Timeline</h2>
+                <span>Schedule guidance should be verified with a healthcare professional.</span>
+              </div>
+              ${renderTimeline(snapshot.child.records)}
+              <button type="button" class="full-schedule-button" data-action="view-record">View Full Schedule</button>
+            </section>
+            ${renderRecommendation(snapshot)}
+          </section>
+          <aside class="record-rail">
+            ${renderRecordForm(snapshot.child)}
+            ${renderReminder(snapshot)}
+            ${renderHistory(snapshot.child)}
+          </aside>
+        </main>
+      </section>
+    </div>
   `;
 
   bindEvents();
+}
+
+function renderSidebar() {
+  return `
+    <aside class="app-sidebar" aria-label="Primary navigation">
+      <div class="brand-lockup">
+        <span class="brand-mark" aria-hidden="true">+</span>
+        <strong>ArogyaTika</strong>
+      </div>
+      <nav class="sidebar-nav">
+        <a class="active" href="#overview">Overview</a>
+        <a href="#schedule">Schedule</a>
+        <a href="#records">Vaccine Record</a>
+        <a href="#reminders">Reminders</a>
+        <a href="#documents">Documents</a>
+        <a href="#children">Children</a>
+        <a href="#settings">Settings</a>
+        <a href="#help">Help & Support</a>
+      </nav>
+      <div class="sidebar-profile">
+        <div class="mini-avatar" aria-hidden="true">${escapeHtml(state.authSession.displayName.charAt(0))}</div>
+        <div>
+          <strong>${escapeHtml(state.authSession.displayName)}</strong>
+          <span>Parent</span>
+        </div>
+      </div>
+    </aside>
+  `;
 }
 
 function renderAuthPage() {
@@ -186,7 +223,7 @@ function renderAuthPage() {
 function renderAccountSummary() {
   return `
     <div class="account-summary">
-      <span>Signed in as</span>
+      <div class="mini-avatar" aria-hidden="true">${escapeHtml(state.authSession.displayName.charAt(0))}</div>
       <strong>${escapeHtml(state.authSession.displayName)}</strong>
       <button type="button" class="ghost-button" data-action="sign-out">Sign Out</button>
     </div>
@@ -205,7 +242,6 @@ function renderChildSwitcher() {
           )
           .join("")}
       </select>
-      <button type="button" class="ghost-button" data-action="add-child">Add Child</button>
     </div>
   `;
 }
@@ -248,16 +284,19 @@ function renderStatusCards(snapshot) {
   const next = snapshot.nextDue;
   const dueThisWeek = snapshot.dueThisWeek.length;
   const overdue = snapshot.overdue.length;
-  const reminder = snapshot.upcomingReminder;
 
   return `
     <section class="status-grid" aria-label="Vaccination status summary">
       ${statusCard("Next Vaccine Due", next?.vaccineName || "None right now", next ? formatRelativeDueDate(next.recommendedDate, TODAY) : "No action today", "calm")}
-      ${statusCard("Due This Week", String(dueThisWeek), dueThisWeek ? "Plan a clinic visit when convenient" : "Nothing due this week", "week")}
-      ${statusCard("Overdue", String(overdue), overdue ? `${overdue} item${overdue === 1 ? "" : "s"} to review with your clinic` : "No overdue vaccines", overdue ? "overdue" : "calm")}
-      ${statusCard("Completed Vaccines", String(snapshot.completedCount), "Recorded in this profile", "done")}
-      ${statusCard("Upcoming Reminder", reminder?.vaccineName || "No reminder", reminder ? `${formatDate(reminder.date)} - ${reminder.status}` : "Add a reminder any time", "reminder")}
+      ${statusCard("Due This Week", String(dueThisWeek), "Vaccine", "week")}
+      ${statusCard("Overdue", String(overdue), `Vaccine${overdue === 1 ? "" : "s"}`, overdue ? "overdue" : "calm")}
+      ${statusCard("Completed", `${snapshot.completedCount} / ${snapshot.totalCount}`, "Doses", "done")}
     </section>
+  `;
+}
+
+function renderRecommendation(snapshot) {
+  return `
     <section class="recommendation">
       <strong>Recommended action</strong>
       <p>${escapeHtml(snapshot.recommendedAction)} This dashboard does not provide medical diagnosis or medical advice.</p>
@@ -367,13 +406,22 @@ function renderActions(snapshot) {
 }
 
 function renderRecordForm(child) {
-  const openRecord = child.records.find((record) => record.status !== "completed") || child.records[0];
+  const draft = state.recordDraft;
+  const openRecord =
+    (draft &&
+      child.records.find(
+        (record) =>
+          record.vaccineName === draft.vaccineName &&
+          String(record.doseNumber) === String(draft.doseNumber)
+      )) ||
+    child.records.find((record) => record.status !== "completed") ||
+    child.records[0];
 
   return `
     <form class="panel record-form" data-action="save-record">
       <div class="section-heading">
-        <h2>Add Completed Dose</h2>
-        <button type="button" class="text-button" data-action="close-form">Close</button>
+        <h2>Add / Update Vaccine Record</h2>
+        <button type="button" class="text-button" data-action="close-form">Reset</button>
       </div>
       ${state.formError ? `<p class="error-text">${escapeHtml(state.formError)}</p>` : ""}
       <label>
@@ -400,7 +448,12 @@ function renderRecordForm(child) {
         <span>Notes (optional)</span>
         <textarea name="notes" rows="3" placeholder="Add anything helpful for your family or clinic."></textarea>
       </label>
-      <button type="submit">Save Self-Reported Record</button>
+      <label class="confirm-row">
+        <input name="selfReported" type="checkbox" checked>
+        <span>I confirm this is a self-reported record</span>
+      </label>
+      <button type="submit">Save Record</button>
+      <p class="helper-text">Self-reported records are labeled and do not overwrite clinic records.</p>
     </form>
   `;
 }
@@ -488,6 +541,10 @@ function bindEvents() {
   app.querySelectorAll("[data-action='complete-dose'], [data-action='add-note']").forEach((button) => {
     button.addEventListener("click", () => {
       state.mode = "record-form";
+      state.recordDraft = {
+        vaccineName: button.dataset.vaccine,
+        doseNumber: button.dataset.dose
+      };
       state.formError = "";
       state.notice = `Preparing a self-reported update for ${button.dataset.vaccine} dose ${button.dataset.dose}.`;
       render();
@@ -497,6 +554,7 @@ function bindEvents() {
   app.querySelector("[data-action='save-record']")?.addEventListener("submit", handleSaveRecord);
   app.querySelector("[data-action='close-form']")?.addEventListener("click", () => {
     state.mode = "dashboard";
+    state.recordDraft = null;
     state.formError = "";
     render();
   });
@@ -575,6 +633,7 @@ function handleSaveRecord(event) {
     state.children = state.children.map((item) => (item.id === child.id ? updated : item));
     state.notice = updated.lastNotice;
     state.mode = "dashboard";
+    state.recordDraft = null;
     state.formError = "";
     saveChildren(state.children);
     render();
