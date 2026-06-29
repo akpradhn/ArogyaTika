@@ -8,14 +8,25 @@ import {
   validateDoseInput
 } from "./vaccineDashboard.js";
 import { createMockChildren } from "./mockData.js";
+import {
+  clearAuthSession,
+  createDemoAuthSession,
+  isClerkConfigured,
+  loadAuthSession,
+  saveAuthSession,
+  validateAuthInput
+} from "./auth.js";
 
 const STORAGE_KEY = "arogyatika.parentVaccineDashboard.v1";
 const TODAY = new Date("2026-06-28T10:00:00.000Z");
 const app = document.querySelector("#app");
 
 const state = {
+  authSession: null,
   children: [],
   selectedChildId: "",
+  authMode: "sign-in",
+  authError: "",
   mode: "dashboard",
   notice: "",
   formError: "",
@@ -27,6 +38,7 @@ init();
 
 function init() {
   try {
+    state.authSession = loadAuthSession();
     state.children = loadChildren();
     state.selectedChildId = state.children[0]?.id || "";
   } catch (error) {
@@ -65,6 +77,12 @@ function render() {
     return;
   }
 
+  if (!state.authSession) {
+    app.innerHTML = renderAuthPage();
+    bindAuthEvents();
+    return;
+  }
+
   if (state.children.length === 0) {
     app.innerHTML = renderNoChild();
     bindEvents();
@@ -80,6 +98,7 @@ function render() {
         <p class="eyebrow">Family vaccine tracker</p>
         <h1>Vaccination Dashboard</h1>
       </div>
+      ${renderAccountSummary()}
       ${renderChildSwitcher()}
     </header>
     <main class="dashboard">
@@ -105,6 +124,73 @@ function render() {
   `;
 
   bindEvents();
+}
+
+function renderAuthPage() {
+  const clerkReady = isClerkConfigured();
+
+  return `
+    <main class="auth-page">
+      <section class="auth-intro">
+        <p class="eyebrow">ArogyaTika private access</p>
+        <h1>Sign in to view your family vaccine records</h1>
+        <p>Use a protected account before opening child profiles, reminders, uploads, or vaccination history.</p>
+        <div class="auth-trust-list" aria-label="Authentication safeguards">
+          <span>Clerk-ready authentication</span>
+          <span>No demo medical data leaves this browser</span>
+          <span>Parent-friendly access</span>
+        </div>
+      </section>
+
+      <section class="auth-card" aria-label="Authentication">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Authentication</p>
+            <h2>${state.authMode === "sign-up" ? "Create family access" : "Welcome back"}</h2>
+          </div>
+          <span>${clerkReady ? "Clerk key detected" : "Demo mode"}</span>
+        </div>
+
+        <div id="clerk-auth-slot" class="clerk-slot" data-clerk-configured="${clerkReady}">
+          <strong>${clerkReady ? "Ready for ClerkJS mount" : "Clerk setup placeholder"}</strong>
+          <p>${
+            clerkReady
+              ? "A real Clerk component can mount here when routing and publishable-key configuration are added."
+              : "Add a Clerk publishable key through environment-specific runtime config before enabling real sign-in."
+          }</p>
+        </div>
+
+        <form class="auth-form" data-action="demo-auth">
+          ${state.authError ? `<p class="error-text">${escapeHtml(state.authError)}</p>` : ""}
+          <label>
+            <span>Parent or guardian name</span>
+            <input name="displayName" autocomplete="name" placeholder="Demo Parent">
+          </label>
+          <label>
+            <span>Email</span>
+            <input name="email" type="email" autocomplete="email" placeholder="parent@example.test" required>
+          </label>
+          <button type="submit">${state.authMode === "sign-up" ? "Create Demo Account" : "Continue with Demo Access"}</button>
+        </form>
+
+        <button type="button" class="text-button auth-toggle" data-action="toggle-auth-mode">
+          ${state.authMode === "sign-up" ? "Already have access? Sign in" : "Need access? Create an account"}
+        </button>
+
+        <p class="helper-text">Real authentication should be completed with Clerk before using real family records. This prototype uses fictional local data only.</p>
+      </section>
+    </main>
+  `;
+}
+
+function renderAccountSummary() {
+  return `
+    <div class="account-summary">
+      <span>Signed in as</span>
+      <strong>${escapeHtml(state.authSession.displayName)}</strong>
+      <button type="button" class="ghost-button" data-action="sign-out">Sign Out</button>
+    </div>
+  `;
 }
 
 function renderChildSwitcher() {
@@ -371,6 +457,14 @@ function renderNoChild() {
 }
 
 function bindEvents() {
+  app.querySelector("[data-action='sign-out']")?.addEventListener("click", () => {
+    clearAuthSession();
+    state.authSession = null;
+    state.notice = "";
+    state.authError = "";
+    render();
+  });
+
   app.querySelector("[data-action='select-child']")?.addEventListener("change", (event) => {
     state.selectedChildId = event.target.value;
     state.mode = "dashboard";
@@ -427,6 +521,39 @@ function bindEvents() {
     state.loadError = "";
     init();
   });
+}
+
+function bindAuthEvents() {
+  app.querySelector("[data-action='demo-auth']")?.addEventListener("submit", handleDemoAuth);
+  app.querySelector("[data-action='toggle-auth-mode']")?.addEventListener("click", () => {
+    state.authMode = state.authMode === "sign-in" ? "sign-up" : "sign-in";
+    state.authError = "";
+    render();
+  });
+}
+
+function handleDemoAuth(event) {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(event.currentTarget).entries());
+  const errors = validateAuthInput(data);
+
+  if (errors.length > 0) {
+    state.authError = errors[0];
+    render();
+    return;
+  }
+
+  try {
+    const session = createDemoAuthSession(data, new Date());
+    saveAuthSession(session);
+    state.authSession = session;
+    state.authError = "";
+    state.notice = "Signed in with local demo access. Connect Clerk before using real records.";
+    render();
+  } catch (error) {
+    state.authError = error.details?.[0] || error.message || "Could not start demo access.";
+    render();
+  }
 }
 
 function handleSaveRecord(event) {

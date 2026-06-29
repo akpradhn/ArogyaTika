@@ -5,6 +5,7 @@ const dist = "dist";
 const files = [
   "index.html",
   "src/app.js",
+  "src/auth.js",
   "src/vaccineDashboard.js",
   "src/mockData.js",
   "src/styles.css"
