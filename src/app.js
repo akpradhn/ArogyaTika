@@ -99,18 +99,15 @@ function render() {
       <section class="content-page">
         <header class="overview-header">
           <div>
-            <p class="eyebrow">Family vaccine tracker</p>
             <h1>Overview</h1>
           </div>
           <div class="overview-controls">
             ${renderChildSwitcher()}
-            ${renderAccountSummary()}
           </div>
         </header>
         <main class="overview-workspace">
           <section class="overview-main">
             ${state.notice ? `<p class="notice" role="status">${escapeHtml(state.notice)}</p>` : ""}
-            ${renderChildHeader(snapshot)}
             ${renderStatusCards(snapshot)}
             <section class="timeline-panel">
               <div class="section-heading">
@@ -157,6 +154,7 @@ function renderSidebar() {
         <div>
           <strong>${escapeHtml(state.authSession.displayName)}</strong>
           <span>Parent</span>
+          <button type="button" class="text-button sidebar-sign-out" data-action="sign-out">Sign Out</button>
         </div>
       </div>
     </aside>
@@ -225,15 +223,16 @@ function renderAccountSummary() {
     <div class="account-summary">
       <div class="mini-avatar" aria-hidden="true">${escapeHtml(state.authSession.displayName.charAt(0))}</div>
       <strong>${escapeHtml(state.authSession.displayName)}</strong>
-      <button type="button" class="ghost-button" data-action="sign-out">Sign Out</button>
     </div>
   `;
 }
 
 function renderChildSwitcher() {
+  const child = getSelectedChild();
+
   return `
     <div class="child-switcher">
-      <label for="child-select">Child profile</label>
+      <div class="mini-avatar child-mini ${child.avatarTone}" aria-hidden="true">${escapeHtml(child.displayName.charAt(0))}</div>
       <select id="child-select" data-action="select-child">
         ${state.children
           .map(
@@ -326,18 +325,7 @@ function renderTimeline(records) {
 
   return `
     <ol class="timeline">
-      ${groupRecordsByStage(records)
-        .map(
-          (group) => `
-            <li class="stage">
-              <h3>${group.stage}</h3>
-              <div class="dose-list">
-                ${group.records.map(renderDose).join("")}
-              </div>
-            </li>
-          `
-        )
-        .join("")}
+      ${getTimelinePreview(records).map(renderDose).join("")}
     </ol>
   `;
 }
@@ -345,28 +333,28 @@ function renderTimeline(records) {
 function renderDose(record) {
   const completed = record.status === "completed";
   const selfReported = record.source === "self_reported";
+  const actionLabel = completed || record.status === "overdue" ? "View Details" : "Set Reminder";
+  const statusText =
+    record.status === "overdue"
+      ? formatRelativeDueDate(record.recommendedDate, TODAY)
+      : STATUS_LABELS[record.status];
 
   return `
-    <article class="dose ${record.status}">
-      <div>
+    <li class="dose ${record.status}">
+      <span class="timeline-dot ${record.status}" aria-hidden="true"></span>
+      <div class="dose-name">
         <div class="dose-title">
           <strong>${escapeHtml(record.vaccineName)}</strong>
           <span>Dose ${escapeHtml(record.doseNumber)}</span>
         </div>
-        <p>${escapeHtml(record.explanation)}</p>
         ${selfReported ? `<em class="self-reported">Self-reported by parent or guardian</em>` : ""}
       </div>
       <div class="dose-meta">
-        <span class="status-pill ${record.status}">${STATUS_LABELS[record.status]}</span>
-        <small>Recommended: ${formatDate(record.recommendedDate)}</small>
-        <small>${completed ? `Completed on ${formatDate(record.actualDate)}` : formatRelativeDueDate(record.recommendedDate, TODAY)}</small>
-        ${
-          completed
-            ? `<button type="button" class="text-button" data-action="add-note" data-vaccine="${escapeAttribute(record.vaccineName)}" data-dose="${escapeAttribute(record.doseNumber)}">Add Note</button>`
-            : `<button type="button" data-action="complete-dose" data-vaccine="${escapeAttribute(record.vaccineName)}" data-dose="${escapeAttribute(record.doseNumber)}">Mark Completed</button>`
-        }
+        <small>${formatDateShort(record.actualDate || record.recommendedDate)}</small>
+        <span class="status-pill ${record.status}">${escapeHtml(statusText)}</span>
+        <button type="button" class="outline-button" data-action="${completed ? "add-note" : "complete-dose"}" data-vaccine="${escapeAttribute(record.vaccineName)}" data-dose="${escapeAttribute(record.doseNumber)}">${actionLabel}</button>
       </div>
-    </article>
+    </li>
   `;
 }
 
@@ -414,19 +402,29 @@ function renderRecordForm(child) {
           record.vaccineName === draft.vaccineName &&
           String(record.doseNumber) === String(draft.doseNumber)
       )) ||
+    child.records
+      .filter((record) => record.status !== "completed" && new Date(`${record.recommendedDate}T00:00:00`) >= TODAY)
+      .sort((a, b) => new Date(a.recommendedDate) - new Date(b.recommendedDate))[0] ||
     child.records.find((record) => record.status !== "completed") ||
     child.records[0];
 
   return `
     <form class="panel record-form" data-action="save-record">
       <div class="section-heading">
-        <h2>Add / Update Vaccine Record</h2>
+        <h2><span aria-hidden="true">←</span> Add / Update Vaccine Record</h2>
         <button type="button" class="text-button" data-action="close-form">Reset</button>
       </div>
       ${state.formError ? `<p class="error-text">${escapeHtml(state.formError)}</p>` : ""}
       <label>
-        <span>Vaccine name</span>
-        <input name="vaccineName" value="${escapeAttribute(openRecord?.vaccineName || "")}" required>
+        <span>Vaccine</span>
+        <select name="vaccineName" required>
+          ${child.records
+            .map(
+              (record) =>
+                `<option value="${escapeAttribute(record.vaccineName)}"${record.id === openRecord?.id ? " selected" : ""}>${escapeHtml(record.vaccineName)} - Dose ${escapeHtml(record.doseNumber)}</option>`
+            )
+            .join("")}
+        </select>
       </label>
       <label>
         <span>Dose number</span>
@@ -456,6 +454,19 @@ function renderRecordForm(child) {
       <p class="helper-text">Self-reported records are labeled and do not overwrite clinic records.</p>
     </form>
   `;
+}
+
+function getTimelinePreview(records) {
+  const completed = records.filter((record) => record.status === "completed").slice(0, 3);
+  const upcoming = records
+    .filter((record) => record.status !== "completed" && record.status !== "overdue")
+    .sort((a, b) => new Date(a.recommendedDate) - new Date(b.recommendedDate))
+    .slice(0, 1);
+  const overdue = records
+    .filter((record) => record.status === "overdue")
+    .sort((a, b) => new Date(b.recommendedDate) - new Date(a.recommendedDate))
+    .slice(0, 2);
+  return [...completed, ...upcoming, ...overdue];
 }
 
 function renderHistory(child) {
@@ -691,6 +702,15 @@ function formatDate(value) {
   return new Intl.DateTimeFormat("en-IN", {
     day: "numeric",
     month: "long",
+    year: "numeric"
+  }).format(new Date(`${value}T00:00:00`));
+}
+
+function formatDateShort(value) {
+  if (!value) return "Not recorded";
+  return new Intl.DateTimeFormat("en-IN", {
+    day: "numeric",
+    month: "short",
     year: "numeric"
   }).format(new Date(`${value}T00:00:00`));
 }
