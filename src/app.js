@@ -8,15 +8,27 @@ import {
   validateDoseInput
 } from "./vaccineDashboard.js";
 import { createMockChildren } from "./mockData.js";
+import {
+  clearAuthSession,
+  createDemoAuthSession,
+  isClerkConfigured,
+  loadAuthSession,
+  saveAuthSession,
+  validateAuthInput
+} from "./auth.js";
 
 const STORAGE_KEY = "arogyatika.parentVaccineDashboard.v1";
 const TODAY = new Date("2026-06-28T10:00:00.000Z");
 const app = document.querySelector("#app");
 
 const state = {
+  authSession: null,
   children: [],
   selectedChildId: "",
+  authMode: "sign-in",
+  authError: "",
   mode: "dashboard",
+  recordDraft: null,
   notice: "",
   formError: "",
   isLoading: true,
@@ -27,6 +39,7 @@ init();
 
 function init() {
   try {
+    state.authSession = loadAuthSession();
     state.children = loadChildren();
     state.selectedChildId = state.children[0]?.id || "";
   } catch (error) {
@@ -65,6 +78,12 @@ function render() {
     return;
   }
 
+  if (!state.authSession) {
+    app.innerHTML = renderAuthPage();
+    bindAuthEvents();
+    return;
+  }
+
   if (state.children.length === 0) {
     app.innerHTML = renderNoChild();
     bindEvents();
@@ -75,36 +94,140 @@ function render() {
   const snapshot = createDashboardSnapshot(child, TODAY);
 
   app.innerHTML = `
-    <header class="app-header">
-      <div>
-        <p class="eyebrow">Family vaccine tracker</p>
-        <h1>Vaccination Dashboard</h1>
-      </div>
-      ${renderChildSwitcher()}
-    </header>
-    <main class="dashboard">
-      ${state.notice ? `<p class="notice" role="status">${escapeHtml(state.notice)}</p>` : ""}
-      ${renderChildHeader(snapshot)}
-      ${renderStatusCards(snapshot)}
-      <div class="content-grid">
-        <section class="timeline-panel">
-          <div class="section-heading">
-            <h2>Vaccine Timeline</h2>
-            <span>Schedule guidance should be verified with a healthcare professional.</span>
+    <div class="signed-in-shell">
+      ${renderSidebar()}
+      <section class="content-page">
+        <header class="overview-header">
+          <div>
+            <p class="eyebrow">Family vaccine tracker</p>
+            <h1>Overview</h1>
           </div>
-          ${renderTimeline(snapshot.child.records)}
-        </section>
-        <aside class="side-panel">
-          ${renderReminder(snapshot)}
-          ${renderActions(snapshot)}
-          ${state.mode === "record-form" ? renderRecordForm(snapshot.child) : ""}
-          ${renderHistory(snapshot.child)}
-        </aside>
-      </div>
-    </main>
+          <div class="overview-controls">
+            ${renderChildSwitcher()}
+            ${renderAccountSummary()}
+          </div>
+        </header>
+        <main class="overview-workspace">
+          <section class="overview-main">
+            ${state.notice ? `<p class="notice" role="status">${escapeHtml(state.notice)}</p>` : ""}
+            ${renderChildHeader(snapshot)}
+            ${renderStatusCards(snapshot)}
+            <section class="timeline-panel">
+              <div class="section-heading">
+                <h2>Vaccination Timeline</h2>
+                <span>Schedule guidance should be verified with a healthcare professional.</span>
+              </div>
+              ${renderTimeline(snapshot.child.records)}
+              <button type="button" class="full-schedule-button" data-action="view-record">View Full Schedule</button>
+            </section>
+            ${renderRecommendation(snapshot)}
+          </section>
+          <aside class="record-rail">
+            ${renderRecordForm(snapshot.child)}
+            ${renderReminder(snapshot)}
+            ${renderHistory(snapshot.child)}
+          </aside>
+        </main>
+      </section>
+    </div>
   `;
 
   bindEvents();
+}
+
+function renderSidebar() {
+  return `
+    <aside class="app-sidebar" aria-label="Primary navigation">
+      <div class="brand-lockup">
+        <span class="brand-mark" aria-hidden="true">+</span>
+        <strong>ArogyaTika</strong>
+      </div>
+      <nav class="sidebar-nav">
+        <a class="active" href="#overview">Overview</a>
+        <a href="#schedule">Schedule</a>
+        <a href="#records">Vaccine Record</a>
+        <a href="#reminders">Reminders</a>
+        <a href="#documents">Documents</a>
+        <a href="#children">Children</a>
+        <a href="#settings">Settings</a>
+        <a href="#help">Help & Support</a>
+      </nav>
+      <div class="sidebar-profile">
+        <div class="mini-avatar" aria-hidden="true">${escapeHtml(state.authSession.displayName.charAt(0))}</div>
+        <div>
+          <strong>${escapeHtml(state.authSession.displayName)}</strong>
+          <span>Parent</span>
+        </div>
+      </div>
+    </aside>
+  `;
+}
+
+function renderAuthPage() {
+  const clerkReady = isClerkConfigured();
+
+  return `
+    <main class="auth-page">
+      <section class="auth-intro">
+        <p class="eyebrow">ArogyaTika private access</p>
+        <h1>Sign in to view your family vaccine records</h1>
+        <p>Use a protected account before opening child profiles, reminders, uploads, or vaccination history.</p>
+        <div class="auth-trust-list" aria-label="Authentication safeguards">
+          <span>Clerk-ready authentication</span>
+          <span>No demo medical data leaves this browser</span>
+          <span>Parent-friendly access</span>
+        </div>
+      </section>
+
+      <section class="auth-card" aria-label="Authentication">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Authentication</p>
+            <h2>${state.authMode === "sign-up" ? "Create family access" : "Welcome back"}</h2>
+          </div>
+          <span>${clerkReady ? "Clerk key detected" : "Demo mode"}</span>
+        </div>
+
+        <div id="clerk-auth-slot" class="clerk-slot" data-clerk-configured="${clerkReady}">
+          <strong>${clerkReady ? "Ready for ClerkJS mount" : "Clerk setup placeholder"}</strong>
+          <p>${
+            clerkReady
+              ? "A real Clerk component can mount here when routing and publishable-key configuration are added."
+              : "Add a Clerk publishable key through environment-specific runtime config before enabling real sign-in."
+          }</p>
+        </div>
+
+        <form class="auth-form" data-action="demo-auth">
+          ${state.authError ? `<p class="error-text">${escapeHtml(state.authError)}</p>` : ""}
+          <label>
+            <span>Parent or guardian name</span>
+            <input name="displayName" autocomplete="name" placeholder="Demo Parent">
+          </label>
+          <label>
+            <span>Email</span>
+            <input name="email" type="email" autocomplete="email" placeholder="parent@example.test" required>
+          </label>
+          <button type="submit">${state.authMode === "sign-up" ? "Create Demo Account" : "Continue with Demo Access"}</button>
+        </form>
+
+        <button type="button" class="text-button auth-toggle" data-action="toggle-auth-mode">
+          ${state.authMode === "sign-up" ? "Already have access? Sign in" : "Need access? Create an account"}
+        </button>
+
+        <p class="helper-text">Real authentication should be completed with Clerk before using real family records. This prototype uses fictional local data only.</p>
+      </section>
+    </main>
+  `;
+}
+
+function renderAccountSummary() {
+  return `
+    <div class="account-summary">
+      <div class="mini-avatar" aria-hidden="true">${escapeHtml(state.authSession.displayName.charAt(0))}</div>
+      <strong>${escapeHtml(state.authSession.displayName)}</strong>
+      <button type="button" class="ghost-button" data-action="sign-out">Sign Out</button>
+    </div>
+  `;
 }
 
 function renderChildSwitcher() {
@@ -119,7 +242,6 @@ function renderChildSwitcher() {
           )
           .join("")}
       </select>
-      <button type="button" class="ghost-button" data-action="add-child">Add Child</button>
     </div>
   `;
 }
@@ -162,16 +284,19 @@ function renderStatusCards(snapshot) {
   const next = snapshot.nextDue;
   const dueThisWeek = snapshot.dueThisWeek.length;
   const overdue = snapshot.overdue.length;
-  const reminder = snapshot.upcomingReminder;
 
   return `
     <section class="status-grid" aria-label="Vaccination status summary">
       ${statusCard("Next Vaccine Due", next?.vaccineName || "None right now", next ? formatRelativeDueDate(next.recommendedDate, TODAY) : "No action today", "calm")}
-      ${statusCard("Due This Week", String(dueThisWeek), dueThisWeek ? "Plan a clinic visit when convenient" : "Nothing due this week", "week")}
-      ${statusCard("Overdue", String(overdue), overdue ? `${overdue} item${overdue === 1 ? "" : "s"} to review with your clinic` : "No overdue vaccines", overdue ? "overdue" : "calm")}
-      ${statusCard("Completed Vaccines", String(snapshot.completedCount), "Recorded in this profile", "done")}
-      ${statusCard("Upcoming Reminder", reminder?.vaccineName || "No reminder", reminder ? `${formatDate(reminder.date)} - ${reminder.status}` : "Add a reminder any time", "reminder")}
+      ${statusCard("Due This Week", String(dueThisWeek), "Vaccine", "week")}
+      ${statusCard("Overdue", String(overdue), `Vaccine${overdue === 1 ? "" : "s"}`, overdue ? "overdue" : "calm")}
+      ${statusCard("Completed", `${snapshot.completedCount} / ${snapshot.totalCount}`, "Doses", "done")}
     </section>
+  `;
+}
+
+function renderRecommendation(snapshot) {
+  return `
     <section class="recommendation">
       <strong>Recommended action</strong>
       <p>${escapeHtml(snapshot.recommendedAction)} This dashboard does not provide medical diagnosis or medical advice.</p>
@@ -281,13 +406,22 @@ function renderActions(snapshot) {
 }
 
 function renderRecordForm(child) {
-  const openRecord = child.records.find((record) => record.status !== "completed") || child.records[0];
+  const draft = state.recordDraft;
+  const openRecord =
+    (draft &&
+      child.records.find(
+        (record) =>
+          record.vaccineName === draft.vaccineName &&
+          String(record.doseNumber) === String(draft.doseNumber)
+      )) ||
+    child.records.find((record) => record.status !== "completed") ||
+    child.records[0];
 
   return `
     <form class="panel record-form" data-action="save-record">
       <div class="section-heading">
-        <h2>Add Completed Dose</h2>
-        <button type="button" class="text-button" data-action="close-form">Close</button>
+        <h2>Add / Update Vaccine Record</h2>
+        <button type="button" class="text-button" data-action="close-form">Reset</button>
       </div>
       ${state.formError ? `<p class="error-text">${escapeHtml(state.formError)}</p>` : ""}
       <label>
@@ -314,7 +448,12 @@ function renderRecordForm(child) {
         <span>Notes (optional)</span>
         <textarea name="notes" rows="3" placeholder="Add anything helpful for your family or clinic."></textarea>
       </label>
-      <button type="submit">Save Self-Reported Record</button>
+      <label class="confirm-row">
+        <input name="selfReported" type="checkbox" checked>
+        <span>I confirm this is a self-reported record</span>
+      </label>
+      <button type="submit">Save Record</button>
+      <p class="helper-text">Self-reported records are labeled and do not overwrite clinic records.</p>
     </form>
   `;
 }
@@ -371,6 +510,14 @@ function renderNoChild() {
 }
 
 function bindEvents() {
+  app.querySelector("[data-action='sign-out']")?.addEventListener("click", () => {
+    clearAuthSession();
+    state.authSession = null;
+    state.notice = "";
+    state.authError = "";
+    render();
+  });
+
   app.querySelector("[data-action='select-child']")?.addEventListener("change", (event) => {
     state.selectedChildId = event.target.value;
     state.mode = "dashboard";
@@ -394,6 +541,10 @@ function bindEvents() {
   app.querySelectorAll("[data-action='complete-dose'], [data-action='add-note']").forEach((button) => {
     button.addEventListener("click", () => {
       state.mode = "record-form";
+      state.recordDraft = {
+        vaccineName: button.dataset.vaccine,
+        doseNumber: button.dataset.dose
+      };
       state.formError = "";
       state.notice = `Preparing a self-reported update for ${button.dataset.vaccine} dose ${button.dataset.dose}.`;
       render();
@@ -403,6 +554,7 @@ function bindEvents() {
   app.querySelector("[data-action='save-record']")?.addEventListener("submit", handleSaveRecord);
   app.querySelector("[data-action='close-form']")?.addEventListener("click", () => {
     state.mode = "dashboard";
+    state.recordDraft = null;
     state.formError = "";
     render();
   });
@@ -429,6 +581,39 @@ function bindEvents() {
   });
 }
 
+function bindAuthEvents() {
+  app.querySelector("[data-action='demo-auth']")?.addEventListener("submit", handleDemoAuth);
+  app.querySelector("[data-action='toggle-auth-mode']")?.addEventListener("click", () => {
+    state.authMode = state.authMode === "sign-in" ? "sign-up" : "sign-in";
+    state.authError = "";
+    render();
+  });
+}
+
+function handleDemoAuth(event) {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(event.currentTarget).entries());
+  const errors = validateAuthInput(data);
+
+  if (errors.length > 0) {
+    state.authError = errors[0];
+    render();
+    return;
+  }
+
+  try {
+    const session = createDemoAuthSession(data, new Date());
+    saveAuthSession(session);
+    state.authSession = session;
+    state.authError = "";
+    state.notice = "Signed in with local demo access. Connect Clerk before using real records.";
+    render();
+  } catch (error) {
+    state.authError = error.details?.[0] || error.message || "Could not start demo access.";
+    render();
+  }
+}
+
 function handleSaveRecord(event) {
   event.preventDefault();
   const form = event.currentTarget;
@@ -448,6 +633,7 @@ function handleSaveRecord(event) {
     state.children = state.children.map((item) => (item.id === child.id ? updated : item));
     state.notice = updated.lastNotice;
     state.mode = "dashboard";
+    state.recordDraft = null;
     state.formError = "";
     saveChildren(state.children);
     render();
