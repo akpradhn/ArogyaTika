@@ -93,22 +93,43 @@ h3 {
 }
 
 .signed-in-shell {
+  position: relative;
   display: grid;
   grid-template-columns: 230px minmax(0, 1fr);
-  min-height: 100vh;
+  min-height: calc(100vh - 24px);
+  margin: 12px;
+  padding-top: 38px;
+  overflow: hidden;
+  border: 1px solid #d8e2ec;
+  border-radius: 12px;
   background:
     radial-gradient(circle at top left, rgba(231, 240, 251, 0.72), transparent 280px),
     #f7fafc;
+  box-shadow: 0 18px 55px rgba(34, 62, 78, 0.12);
+}
+
+.signed-in-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 38px;
+  border-bottom: 1px solid #d8e2ec;
+  background:
+    radial-gradient(circle at 28px 19px, #ff5f57 0 6px, transparent 7px),
+    radial-gradient(circle at 52px 19px, #febc2e 0 6px, transparent 7px),
+    radial-gradient(circle at 76px 19px, #28c840 0 6px, transparent 7px),
+    #eef5fb;
+  z-index: 2;
 }
 
 .app-sidebar {
   display: grid;
   grid-template-rows: auto 1fr auto;
   gap: 24px;
-  min-height: 100vh;
+  min-height: calc(100vh - 62px);
   border-right: 1px solid #dfe8ee;
   background: rgba(255, 255, 255, 0.92);
-  padding: 18px 12px;
+  padding: 22px 12px 18px;
 }
 
 .brand-lockup {
@@ -190,6 +211,7 @@ h3 {
 
 .content-page {
   min-width: 0;
+  background: rgba(255, 255, 255, 0.58);
 }
 
 .overview-header {
@@ -197,10 +219,10 @@ h3 {
   justify-content: space-between;
   gap: 16px;
   align-items: center;
-  min-height: 74px;
+  min-height: 76px;
   border-bottom: 1px solid #dfe8ee;
   background: rgba(255, 255, 255, 0.86);
-  padding: 16px 22px;
+  padding: 18px 28px;
 }
 
 .overview-controls {
@@ -211,11 +233,11 @@ h3 {
 
 .overview-workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 360px;
-  gap: 14px;
-  max-width: 1280px;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  gap: 12px;
+  max-width: none;
   margin: 0 auto;
-  padding: 18px;
+  padding: 24px 28px;
 }
 
 .overview-main,
@@ -228,7 +250,7 @@ h3 {
 
 .record-rail {
   position: sticky;
-  top: 18px;
+  top: 24px;
 }
 
 .auth-page {
@@ -338,8 +360,24 @@ h3 {
 .child-switcher {
   display: grid;
   grid-template-columns: auto minmax(150px, 190px);
-  gap: 8px;
+  gap: 10px;
   align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 10px 6px 6px;
+  background: #fff;
+}
+
+.child-switcher select {
+  border: 0;
+  padding: 5px 4px;
+  background: transparent;
+  font-weight: 800;
+}
+
+.child-mini.mint {
+  background: var(--mint);
+  color: var(--mint-strong);
 }
 
 label {
@@ -527,14 +565,14 @@ textarea:focus {
 .status-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+  gap: 24px;
 }
 
 .status-card {
   display: grid;
   gap: 6px;
-  min-height: 116px;
-  padding: 15px;
+  min-height: 150px;
+  padding: 20px;
   box-shadow: none;
 }
 
@@ -546,7 +584,7 @@ textarea:focus {
 }
 
 .status-card strong {
-  font-size: 1.35rem;
+  font-size: 1.55rem;
 }
 
 .status-card p {
@@ -594,7 +632,7 @@ textarea:focus {
 .panel {
   display: grid;
   gap: 13px;
-  padding: 14px;
+  padding: 22px;
 }
 
 .timeline-panel {
@@ -617,10 +655,11 @@ textarea:focus {
 
 .timeline {
   display: grid;
-  gap: 14px;
+  gap: 0;
   margin: 0;
   padding: 0;
   list-style: none;
+  border-top: 1px solid #e7edf2;
 }
 
 .stage {
@@ -641,17 +680,19 @@ textarea:focus {
 
 .dose {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(190px, auto);
+  grid-template-columns: 28px minmax(0, 1fr) minmax(470px, auto);
   gap: 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 12px;
+  align-items: center;
+  min-height: 58px;
+  border: 0;
+  border-bottom: 1px solid #e7edf2;
+  border-radius: 0;
+  padding: 10px 0;
   background: #fff;
 }
 
 .dose.overdue {
-  border-color: #ffd0c6;
-  background: #fff9f7;
+  background: #fff;
 }
 
 .dose-title {
@@ -659,6 +700,10 @@ textarea:focus {
   gap: 8px;
   align-items: center;
   flex-wrap: wrap;
+}
+
+.dose-name {
+  min-width: 0;
 }
 
 .dose-title span,
@@ -681,9 +726,11 @@ textarea:focus {
 
 .dose-meta {
   display: grid;
-  justify-items: end;
-  gap: 6px;
-  text-align: right;
+  grid-template-columns: 120px 170px 120px;
+  justify-items: start;
+  align-items: center;
+  gap: 14px;
+  text-align: left;
 }
 
 .dose-meta small {
@@ -719,6 +766,65 @@ textarea:focus {
   color: var(--blue-strong);
 }
 
+.timeline-dot {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #2fa86f;
+}
+
+.timeline-dot::before,
+.timeline-dot::after {
+  content: "";
+  position: absolute;
+  left: 9px;
+  width: 2px;
+  height: 24px;
+  background: #dfe8ee;
+}
+
+.timeline-dot::before {
+  bottom: 20px;
+}
+
+.timeline-dot::after {
+  top: 20px;
+}
+
+.dose:first-child .timeline-dot::before,
+.dose:last-child .timeline-dot::after {
+  display: none;
+}
+
+.timeline-dot.completed {
+  background: #2fa86f;
+}
+
+.timeline-dot.completed::after,
+.timeline-dot.completed::before {
+  background: #bfe7d2;
+}
+
+.timeline-dot.scheduled,
+.timeline-dot.due_soon,
+.timeline-dot.due_today {
+  background: #2d6cdf;
+}
+
+.timeline-dot.overdue {
+  background: #ef4444;
+}
+
+.outline-button {
+  border: 1px solid #cfe0fb;
+  background: #f8fbff;
+  color: #2469d8;
+  padding: 7px 10px;
+}
+
 .side-panel {
   display: grid;
   gap: 12px;
@@ -732,6 +838,13 @@ textarea:focus {
 .record-form {
   background: #fff;
   box-shadow: none;
+  min-height: 650px;
+}
+
+.record-form .section-heading h2 {
+  display: flex;
+  gap: 10px;
+  align-items: center;
 }
 
 .record-form button[type="submit"] {
@@ -774,6 +887,11 @@ textarea:focus {
 .text-button {
   padding: 7px 9px;
   border-color: transparent;
+}
+
+.sidebar-sign-out {
+  justify-self: start;
+  padding: 0;
 }
 
 .full-schedule-button {
