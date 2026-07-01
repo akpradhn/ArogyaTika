@@ -255,79 +255,51 @@ h3 {
 
 .auth-page {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
-  gap: 18px;
-  align-items: center;
-  width: min(1040px, 100%);
+  place-items: center;
+  width: min(520px, 100%);
   min-height: 100vh;
   margin: 0 auto;
-  padding: 24px;
+  padding: 20px;
 }
 
-.auth-intro,
 .auth-card {
   border: 1px solid var(--line);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.86);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.92);
   box-shadow: var(--shadow);
 }
 
-.auth-intro {
-  display: grid;
-  gap: 14px;
-  padding: 28px;
-}
-
-.auth-intro h1 {
-  max-width: 620px;
-  font-size: 2rem;
-}
-
-.auth-intro p {
-  max-width: 620px;
-  color: var(--muted);
-  font-size: 1.05rem;
-  line-height: 1.5;
-}
-
-.auth-trust-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.auth-trust-list span {
-  border-radius: 999px;
-  padding: 7px 10px;
-  background: #eef8f3;
-  color: var(--mint-strong);
-  font-size: 0.78rem;
-  font-weight: 900;
-}
-
 .auth-card {
   display: grid;
-  gap: 14px;
-  padding: 18px;
+  gap: 16px;
+  width: 100%;
+  padding: 26px;
+}
+
+.auth-card h1 {
+  font-size: 1.65rem;
+}
+
+.auth-brand {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  color: #2269c9;
+  font-size: 1.05rem;
 }
 
 .clerk-slot {
-  display: grid;
-  gap: 6px;
-  border: 1px dashed var(--line);
-  border-radius: 8px;
-  padding: 13px;
-  background: #fffdf7;
+  width: fit-content;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: #eef8f3;
+  color: var(--mint-strong);
+  font-size: 0.76rem;
+  font-weight: 900;
 }
 
 .clerk-slot[data-clerk-configured="true"] {
-  border-style: solid;
   background: #f0fbf6;
-}
-
-.clerk-slot p {
-  color: var(--muted);
-  line-height: 1.4;
 }
 
 .auth-form {
@@ -335,8 +307,14 @@ h3 {
   gap: 12px;
 }
 
+.auth-form button[type="submit"] {
+  margin-top: 4px;
+  width: 100%;
+}
+
 .auth-toggle {
   justify-self: center;
+  padding: 4px 8px;
 }
 
 .account-summary {
@@ -1017,13 +995,8 @@ textarea:focus {
     padding: 14px;
   }
 
-  .auth-intro,
   .auth-card {
-    padding: 16px;
-  }
-
-  .auth-intro h1 {
-    font-size: 1.55rem;
+    padding: 20px;
   }
 
   .profile-block {
