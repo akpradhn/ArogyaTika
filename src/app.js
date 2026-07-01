@@ -166,33 +166,18 @@ function renderAuthPage() {
 
   return `
     <main class="auth-page">
-      <section class="auth-intro">
-        <p class="eyebrow">ArogyaTika private access</p>
-        <h1>Sign in to view your family vaccine records</h1>
-        <p>Use a protected account before opening child profiles, reminders, uploads, or vaccination history.</p>
-        <div class="auth-trust-list" aria-label="Authentication safeguards">
-          <span>Clerk-ready authentication</span>
-          <span>No demo medical data leaves this browser</span>
-          <span>Parent-friendly access</span>
-        </div>
-      </section>
-
       <section class="auth-card" aria-label="Authentication">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">Authentication</p>
-            <h2>${state.authMode === "sign-up" ? "Create family access" : "Welcome back"}</h2>
-          </div>
-          <span>${clerkReady ? "Clerk key detected" : "Demo mode"}</span>
+        <div class="auth-brand">
+          <span class="brand-mark" aria-hidden="true">+</span>
+          <strong>ArogyaTika</strong>
+        </div>
+        <div>
+          <p class="eyebrow">${clerkReady ? "Clerk ready" : "Demo mode"}</p>
+          <h1>${state.authMode === "sign-up" ? "Create account" : "Welcome back"}</h1>
         </div>
 
         <div id="clerk-auth-slot" class="clerk-slot" data-clerk-configured="${clerkReady}">
-          <strong>${clerkReady ? "Ready for ClerkJS mount" : "Clerk setup placeholder"}</strong>
-          <p>${
-            clerkReady
-              ? "A real Clerk component can mount here when routing and publishable-key configuration are added."
-              : "Add a Clerk publishable key through environment-specific runtime config before enabling real sign-in."
-          }</p>
+          ${clerkReady ? "Ready for ClerkJS" : "Local demo access"}
         </div>
 
         <form class="auth-form" data-action="demo-auth">
@@ -211,8 +196,6 @@ function renderAuthPage() {
         <button type="button" class="text-button auth-toggle" data-action="toggle-auth-mode">
           ${state.authMode === "sign-up" ? "Already have access? Sign in" : "Need access? Create an account"}
         </button>
-
-        <p class="helper-text">Real authentication should be completed with Clerk before using real family records. This prototype uses fictional local data only.</p>
       </section>
     </main>
   `;
